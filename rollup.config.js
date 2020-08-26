@@ -1,0 +1,138 @@
+import typescript from 'rollup-plugin-typescript';
+import commonjs from 'rollup-plugin-commonjs';
+import resolve from 'rollup-plugin-node-resolve';
+import { terser } from 'rollup-plugin-terser';
+import postcss from 'rollup-plugin-postcss';
+import pkg from './package.json';
+
+function toRecordPath(path) {
+  return path
+    .replace(/^([\w]+)\//, '$1/record/')
+    .replace('rrweb', 'rrweb-record');
+}
+
+function toPackPath(path) {
+  return path
+    .replace(/^([\w]+)\//, '$1/packer/')
+    .replace('rrweb', 'rrweb-pack');
+}
+
+function toMinPath(path) {
+  return path.replace(/\.js$/, '.min.js');
+}
+
+const namedExports = {
+  'pako/dist/pako_deflate': ['deflate'],
+  'pako/dist/pako_inflate': ['inflate'],
+  pako: ['deflate'],
+};
+
+const baseConfigs = [
+  {
+    input: './src/record/index.ts',
+    name: 'rrwebRecord',
+    pathFn: toRecordPath,
+  },
+  {
+    input: './src/packer/pack.ts',
+    name: 'rrwebPack',
+    pathFn: toPackPath,
+  },
+  {
+    input: './src/index.ts',
+    name: 'rrweb',
+    pathFn: (p) => p,
+  },
+];
+
+let configs = [];
+
+for (const c of baseConfigs) {
+  const plugins = [
+    resolve(),
+    commonjs({ namedExports }),
+    typescript(),
+    postcss({
+      extract: false,
+      inject: false,
+    }),
+  ];
+  const minifyPlugins = plugins.concat(terser());
+  // browser
+  configs.push({
+    input: c.input,
+    plugins,
+    output: [
+      {
+        name: c.name,
+        format: 'iife',
+        file: c.pathFn(pkg.unpkg),
+      },
+    ],
+  });
+  // browser + minify
+  configs.push({
+    input: c.input,
+    plugins: minifyPlugins,
+    output: [
+      {
+        name: c.name,
+        format: 'iife',
+        file: toMinPath(c.pathFn(pkg.unpkg)),
+        sourcemap: true,
+      },
+    ],
+  });
+  // CommonJS
+  configs.push({
+    input: c.input,
+    plugins,
+    output: [
+      {
+        format: 'cjs',
+        file: c.pathFn(pkg.main),
+      },
+    ],
+  });
+  // ES module
+  configs.push({
+    input: c.input,
+    plugins,
+    preserveModules: true,
+    output: [
+      {
+        format: 'esm',
+        dir: 'es/rrweb',
+      },
+    ],
+  });
+}
+
+if (process.env.BROWSER_ONLY) {
+  configs = {
+    input: './src/index.ts',
+    plugins: [
+      resolve(),
+      commonjs({
+        namedExports,
+      }),
+      typescript(),
+      postcss({
+        extract: true,
+        minimize: true,
+        sourceMap: true,
+      }),
+      terser(),
+    ],
+    output: [
+      {
+        name: 'rrweb',
+        format: 'iife',
+        file: toMinPath(pkg.unpkg),
+        sourcemap: true,
+      },
+    ],
+  };
+}
+
+export default configs;
